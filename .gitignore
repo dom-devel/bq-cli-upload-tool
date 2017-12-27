@@ -3,3 +3,6 @@ dist/**
 *.csv
 *.rar
 *.exe
+virtualenv/**
+test_files/**
+*.ipynb

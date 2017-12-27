@@ -1,3 +1,6 @@
+"""bootstrap.bootstrap: provides entry point main()."""
+
+__version__ = "0.21"
 import pandas as pd
 import argparse
 import tarfile
@@ -14,6 +17,8 @@ from os import listdir
 import json
 import logging
 import logging.config
+from inspect import getsourcefile
+from os.path import abspath
 
 if sys.version_info[0]+(sys.version_info[1]/10) < 3.5:
     raise Exception("Python 3.3 or a more recent version is required.")
@@ -26,12 +31,15 @@ def setup_logging(
     """Setup logging configuration
 
     """
-    path = default_path
+    path = os.path.join(os.path.dirname(abspath(getsourcefile(lambda:0))),
+        default_path)
+    print(path)
     if os.path.exists(path):
         with open(path, 'rt') as f:
             config = json.load(f)
         logging.config.dictConfig(config)
     else:
+        print("DOM2")
         logging.basicConfig(level=default_level)
 
 
@@ -116,7 +124,7 @@ def run_shell_command(command):
     }
 
 
-def read_csv_to_df(inputfile, args, line_skip, nrows, columns_to_date_guess, no_date=False):
+def read_csv_to_df(inputfile, args, line_skip, nrows, columns_to_date_guess, has_date=True):
     '''
     This function takes an input file and the config args and then uses it to open
     a CSV format it depending on the arguments provided.
@@ -131,7 +139,7 @@ def read_csv_to_df(inputfile, args, line_skip, nrows, columns_to_date_guess, no_
     date_columns = False
     dateparse = None
 
-    if no_date is False:
+    if has_date is True:
         if args.timestamp_columns is not "No":
             if columns_to_date_guess is not False:
                 logging.info("You have set date guessing to true and set a custom timestamp format. \
@@ -151,8 +159,11 @@ def read_csv_to_df(inputfile, args, line_skip, nrows, columns_to_date_guess, no_
                          low_memory=False, 
                          skiprows=line_skip, 
                          nrows=nrows)
+    except FileNotFoundError as e:
+        logging.error("The file {} can't be found, please select an existing file.".format(inputfile))
+        exit()
     except ValueError as e:
-        if no_date is not False:
+        if has_date is True:
             logging.error("The strptime string provided for parsing the dates has failed. "
                           "Please check your string. A guide can be found here. http://strftime.org/ "
                           "The script will now exit.")
@@ -221,7 +232,7 @@ def upload_to_bq(upload_file_name, original_file_path, args, strict_schema, file
         logging.info("FAILURE: {0} was not uploaded into {1}.{2}" 
                      .format(upload_file_name, args.dataset, args.table))
         logging.info(output_load_data['stdout'])
-        file_fail_position = re.search("starting at\slocation\s(\d*)",output_load_data['stdout'])
+        file_fail_position = re.search("starting at\s(location|position)\s(\d*)",output_load_data['stdout'])
         if file_fail_position:
             fail_byte = file_fail_position.group(1)
             with open(original_file_path, 'r') as f:    
@@ -279,6 +290,19 @@ def get_sane_path(p):
     return p
 
 
+def last_uploaded_file(config_dict):
+    '''
+    This function saves a config dictionary to a file.
+    '''
+
+    output_loc = os.path.join(os.path.dirname(abspath(getsourcefile(lambda:0))),
+        "last_uploaded_file.txt")
+
+    file = open(output_loc,"w") 
+    json.dump(config_dict, file)
+    file.close() 
+
+
 def setup_bq(args):
     '''
     This function checks if the specified dataset opens.
@@ -307,10 +331,16 @@ def get_non_numeric_columns(file, args, line_skip, nrows):
     return columns_to_guess
 
 
+class Struct:
+    def __init__(self, **entries):
+        self.__dict__.update(entries)
+
+
 def main():   
     # Initialize logging.
     setup_logging()
     global logger
+
     logger = logging.getLogger(__name__)
 
     parser = argparse.ArgumentParser(description="This program will load the selected file into "
@@ -340,9 +370,9 @@ def main():
                              "delimiter, specify it here. If you""re setting a specific file type "
                              "you don""t need this.")
     parser.add_argument("-e", "--encoding",default="utf-8", 
-                        help="Requires file processing. Specify the encoding of the file to be "
-                             "uploaded. BQ only accepts utf-8 so the file will be outputted as "
-                             "utf-8.")
+                        help="Requires file processing option. Specify the encoding of the file to "
+                             "be uploaded, it will be converted to utf-8 as this is the only "
+                             "encoding supported by BigQuery.")
     parser.add_argument("-br", "--max_bad_records",default="0", 
                         help="This will set the maximum number of errors BigQuery will allow "
                              "per file to be uploaded.")
@@ -359,6 +389,10 @@ def main():
                         help="Requires file processing. Provide a strptime string to process "
                              "the dates with. Currently this script doesn""t support files with "
                              "multiple different timestamps.")
+    parser.add_argument("-rl", "--reload_uploaded_file",default=False, type=bool,
+                        help="Reload uploaded file. When you have uploaded a very large file "
+                             "and it has failed to open in BigQuery, this option allows you to just "
+                             "retry the load. (Typically used for increasing error threshold). Takes a boolean.")
 
     args = parser.parse_args()
 
@@ -411,193 +445,221 @@ def main():
         else:
             logger.info("The Google Cloud project {} exists".format(args.project))
 
-    # Check the bucket provided exists
-    check_bucket_exists = ['gsutil','ls','-p',args.project]
-    output_bucket_exist = run_shell_command(check_bucket_exists)
+    if args.reload_uploaded_file is False:
+        # Check the bucket provided exists
+        check_bucket_exists = ['gsutil','ls','-p',args.project]
+        output_bucket_exist = run_shell_command(check_bucket_exists)
 
-    if output_bucket_exist['stdout']:
-        if "gs://{}/".format(args.bucket) in output_bucket_exist['stdout']:
-            logger.info("The GCS bucket {} exists.".format(args.bucket))
-        else:
-            create_bucket = ['gsutil','mb','-p', args.project, "gs://{}/".format(args.bucket)]
-            output_create_bucket = run_shell_command(create_bucket)
-            logger.info("The GCS bucket {} didn't exist and has been created: Standard storage, "
-                         "American region.".format(args.bucket))
-    else:
-        logger.info("Something has gone wrong, stdout and stderr from gsutil logged below.")
-        logger.info(output_bucket_exist)
-        exit(1)
-
-    # Warn user about uploading a folder
-    is_file = True
-    if os.path.isdir(args.path):
-        logger.info("You have selected a folder to upload. This script will now attempt to upload "
-                     "everything in that folder. In case this was a mistake the script will now "
-                     "pause for 2 seconds.")
-        time.sleep(2)
-        is_file = False
-
-    if args.timestamp_columns != "No":
-        if args.timestamp_strptime == "No":
-            logger.info("A timestamp format must be provided with the timestamp column, please \
-                         specify one.")
-            exit(1)
-        else:
-            logger.info("You are setting custom timestamps, but didn\'t enabled pandas "
-                         "processing. In order to process a specific timestamp format the file "
-                         "must be opened in pandas and so this has been enabled.")
-            args.pandas_processing = True
-
-    if args.timestamp_strptime != "No":
-        if args.timestamp_columns == "No":
-            logger.info("Timestamp column(s) must be provided with the format, please specify them.")
-            exit(1)
-
-    # Turn folder or file into list of absolute file paths.
-    if is_file is False:
-        # Get all files in directory
-        file_list = [get_sane_path(os.path.join(args.path,f)) for f in listdir(args.path) if os.path.isfile(os.path.join(args.path, f))]
-    else:
-        file_list = [get_sane_path(args.path)]
-
-    logger.info("Files to be uploaded: {0}".format(len(file_list)))
-
-    # Iterate through list of files to upload
-    for file in file_list:
-        filename = os.path.basename(file)
-        folderpath = os.path.dirname(file)
-
-        logger.info("The script will attempt to upload: {}".format(filename))
-
-        file_format = "CSV"
-        suffixes = Path(filename).suffixes
-        non_supported_archive = set([".zip", ".tar"])
-
-        if "xz" in suffixes or "bz2" in suffixes:
-            logger.info("BigQuery doesn't support xz or bz2 compression you'll need to "
-                        "uncompress before loading with this script.")
-            exit()
-
-        # Things that need to be handled with tar
-        # Non gzip needs to be decompressed. This will be done automatically by pandas.
-        # If there is an intersection then some compression work is needed
-        zipped_non_delimit = False
-        zip_file_extracted = False
-        if set(suffixes) & non_supported_archive:
-
-            if ".tar" in suffixes:
-                # tar = tarfile.open("sample.tar.gz", "w:gz")
-                archive = tarfile.open(file)
-                if len(archive.getmembers()) != 1:
-                    logger.info("This script only supports tar archives with a single file inside."
-                                "Please open the archive manually and run on the folder.")
-                    exit()
-                else:
-                    # Filename is only used for generating new files not loading
-                    # so to avoid pandas writing out uncompressed dataframes as .gz files
-                    # we set filename here.
-                    archived_filename = archive.getmembers()[0].name
-                    filename = Path(archived_filename).resolve().stem
-                    # Overwrite suffixes with file inside archive as pandas can read
-                    # both zip and tar
-                    suffixes = Path(archived_filename).suffixes
+        if output_bucket_exist['stdout']:
+            if "gs://{}/".format(args.bucket) in output_bucket_exist['stdout']:
+                logger.info("The GCS bucket {} exists.".format(args.bucket))
             else:
-                archive = zipfile.ZipFile(file, "r")
-                if len(archive.infolist()) != 1:
-                    logger.info("This script only supports zip archives with a single file inside."
-                                "Please open the archive manually and run on the folder.")
-                    exit()
-                else:
-                    archived_filename = archive.namelist()[0]
-                    filename = Path(archived_filename).resolve().stem
-                    suffixes = Path(archived_filename).suffixes
-
-            # If tar won't be opened in pandas then it needs to be opened.
-            if args.guess_date is False and args.pandas_processing is False: 
-                logger.info("An archive is being uploaded directly. BigQuery doesn't support archives "
-                            "so {} will be extracted and then uploaded.".format(archived_filename))
-                archive.extractall(folderpath)
-                zip_file_extracted = True
-
-                file = os.path.join(folderpath,archived_filename)
-                filename = archived_filename
-
-        # Create strict schema for BQ if needed
-        strict_schema = None
-        gcs_mv_or_cp = "cp"
-
-        if ".json" in suffixes or ".avro" in suffixes or zipped_non_delimit is True:
-            if ".json" in suffixes:
-                file_format = "NEWLINE_DELIMITED_JSON"
-                gcs_mv_or_cp = "mv"
-
-                # We have to format and duplicate the JSON file so we rewrite names
-                old_file = file
-                filename = format_json_for_upload(filename,folderpath)
-                file = os.path.join(folderpath, filename)
-
-                # If file was a zip, then extracted file will need to be removed
-                # once JSON copy is processed.
-                if zip_file_extracted:
-                    os.remove(old_file)
-
-            elif ".avro" in suffixes:
-                file_format = "AVRO"
-
-            logger.info("You are uploading a non-CSV file, this means non of the optional "
-                        "functionality can be used, the file will uploaded as is or in the case "
-                        "of JSON, formatted so there is one object per line and then uploaded.")
-            args.pandas_processing = False
+                create_bucket = ['gsutil','mb','-p', args.project, "gs://{}/".format(args.bucket)]
+                output_create_bucket = run_shell_command(create_bucket)
+                logger.info("The GCS bucket {} didn't exist and has been created: Standard storage, "
+                             "American region.".format(args.bucket))
         else:
-            # To check line skip we try to open the first line of the file in pandas
-            open_current_skip = read_csv_to_df(file, args, args.line_skip-1, 2, False)
-            open_test_skip = read_csv_to_df(file, args, 10, 2, False, no_date=True)
+            logger.info("Something has gone wrong, stdout and stderr from gsutil logged below.")
+            logger.info(output_bucket_exist)
+            exit(1)
 
-            if open_current_skip.shape != open_test_skip.shape:
-                logger.error("The number of columns in your file changes if 10 rows are skipped. Your line skip is set incorrectly. Remember the skip should also skip the header row.")
+        # Warn user about uploading a folder
+        is_file = True
+        if os.path.isdir(args.path):
+            logger.info("You have selected a folder to upload. This script will now attempt to upload "
+                         "everything in that folder. In case this was a mistake the script will now "
+                         "pause for 2 seconds.")
+            time.sleep(2)
+            is_file = False
+
+        if args.timestamp_columns != "No":
+            if args.timestamp_strptime == "No":
+                logger.info("A timestamp format must be provided with the timestamp column, please \
+                             specify one.")
+                exit(1)
+            else:
+                logger.info("You are setting custom timestamps, but didn\'t enabled pandas "
+                             "processing. In order to process a specific timestamp format the file "
+                             "must be opened in pandas and so this has been enabled.")
+                args.pandas_processing = True
+
+        if args.timestamp_strptime != "No":
+            if args.timestamp_columns == "No":
+                logger.info("Timestamp column(s) must be provided with the format, please specify them.")
+                exit(1)
+
+        # Turn folder or file into list of absolute file paths.
+        if is_file is False:
+            # Get all files in directory
+            file_list = [get_sane_path(os.path.join(args.path,f)) for f in listdir(args.path) if os.path.isfile(os.path.join(args.path, f))]
+        else:
+            file_list = [get_sane_path(args.path)]
+
+        logger.info("Files to be uploaded: {0}".format(len(file_list)))
+
+        # Iterate through list of files to upload
+        for file in file_list:
+            filename = os.path.basename(file)
+            folderpath = os.path.dirname(file)
+
+            logger.info("The script will attempt to upload: {}".format(filename))
+
+            file_format = "CSV"
+            suffixes = Path(filename).suffixes
+            non_supported_archive = set([".zip", ".tar"])
+
+            if "xz" in suffixes or "bz2" in suffixes:
+                logger.info("BigQuery doesn't support xz or bz2 compression you'll need to "
+                            "uncompress before loading with this script.")
                 exit()
 
-            columns_to_guess = False
-            if args.strict_schema is True: 
-                nrows = 2
-                if args.guess_date is True:
-                    # There's no reason strict schema can't also be with guessed dates
+            # Things that need to be handled with tar
+            # Non gzip needs to be decompressed. This will be done automatically by pandas.
+            # If there is an intersection then some compression work is needed
+            zipped_non_delimit = False
+            zip_file_extracted = False
+            if set(suffixes) & non_supported_archive:
+
+                if ".tar" in suffixes:
+                    # tar = tarfile.open("sample.tar.gz", "w:gz")
+                    archive = tarfile.open(file)
+                    if len(archive.getmembers()) != 1:
+                        logger.info("This script only supports tar archives with a single file inside."
+                                    "Please open the archive manually and run on the folder.")
+                        exit()
+                    else:
+                        # Filename is only used for generating new files not loading
+                        # so to avoid pandas writing out uncompressed dataframes as .gz files
+                        # we set filename here.
+                        archived_filename = archive.getmembers()[0].name
+                        filename = Path(archived_filename).resolve().stem
+                        # Overwrite suffixes with file inside archive as pandas can read
+                        # both zip and tar
+                        suffixes = Path(archived_filename).suffixes
+                else:
+                    archive = zipfile.ZipFile(file, "r")
+                    if len(archive.infolist()) != 1:
+                        logger.info("This script only supports zip archives with a single file inside."
+                                    "Please open the archive manually and run on the folder.")
+                        exit()
+                    else:
+                        archived_filename = archive.namelist()[0]
+                        filename = Path(archived_filename).resolve().stem
+                        suffixes = Path(archived_filename).suffixes
+
+                # If tar won't be opened in pandas then it needs to be opened.
+                if args.guess_date is False and args.pandas_processing is False: 
+                    logger.info("An archive is being uploaded directly. BigQuery doesn't support archives "
+                                "so {} will be extracted and then uploaded.".format(archived_filename))
+                    archive.extractall(folderpath)
+                    zip_file_extracted = True
+
+                    file = os.path.join(folderpath,archived_filename)
+                    filename = archived_filename
+
+            # Create strict schema for BQ if needed
+            strict_schema = None
+            gcs_mv_or_cp = "cp"
+
+            if ".json" in suffixes or ".avro" in suffixes or zipped_non_delimit is True:
+                if ".json" in suffixes:
+                    file_format = "NEWLINE_DELIMITED_JSON"
+                    gcs_mv_or_cp = "mv"
+
+                    # We have to format and duplicate the JSON file so we rewrite names
+                    old_file = file
+                    filename = format_json_for_upload(filename,folderpath)
+                    file = os.path.join(folderpath, filename)
+
+                    # If file was a zip, then extracted file will need to be removed
+                    # once JSON copy is processed.
+                    if zip_file_extracted:
+                        os.remove(old_file)
+
+                elif ".avro" in suffixes:
+                    file_format = "AVRO"
+
+                logger.info("You are uploading a non-CSV file, this means non of the optional "
+                            "functionality can be used, the file will uploaded as is or in the case "
+                            "of JSON, formatted so there is one object per line and then uploaded.")
+                args.pandas_processing = False
+            else:
+                # To check line skip we try to open the first line of the file in pandas
+                open_current_skip = read_csv_to_df(file, args, args.line_skip-1, 2, False)
+                open_test_skip = read_csv_to_df(file, args, 10, 2, False, has_date=False)
+
+                if open_current_skip.shape != open_test_skip.shape:
+                    logger.error("The number of columns in your file changes if 10 rows are skipped. Your line skip is set incorrectly. Remember the skip should also skip the header row.")
+                    exit()
+
+                columns_to_guess = False
+                if args.strict_schema is True: 
+                    nrows = 2
+                    if args.guess_date is True:
+                        # There's no reason strict schema can't also be with guessed dates
+                        args.pandas_processing = True
+                        columns_to_guess = get_non_numeric_columns(file, args, args.line_skip-1, 200)
+                    df_sliced_data = read_csv_to_df(file, args, args.line_skip-1, nrows, columns_to_guess)
+                    strict_schema = create_schema(df_sliced_data, args) 
+                elif args.guess_date is True:
+                    # Guessing the dates, means we'll need then open the file in pandas
+                    # to output the dates in the correct format.
                     args.pandas_processing = True
                     columns_to_guess = get_non_numeric_columns(file, args, args.line_skip-1, 200)
-                df_sliced_data = read_csv_to_df(file, args, args.line_skip-1, nrows, columns_to_guess)
-                strict_schema = create_schema(df_sliced_data, args) 
-            elif args.guess_date is True:
-                # Guessing the dates, means we'll need then open the file in pandas
-                # to output the dates in the correct format.
-                args.pandas_processing = True
-                columns_to_guess = get_non_numeric_columns(file, args, args.line_skip-1, 200)
-                df_sliced_data = read_csv_to_df(file, args, args.line_skip-1, 200, columns_to_guess)
-                strict_schema = create_schema(df_sliced_data, args)
+                    df_sliced_data = read_csv_to_df(file, args, args.line_skip-1, 200, columns_to_guess)
+                    strict_schema = create_schema(df_sliced_data, args)
 
-                logger.info("You are guessing dates, this means pandas_processing will be enabled "
-                             "and the file opened in pandas to allow date formatting into a BigQuery "
-                             "friendly date format. It will attempt to guess dates based on the top "
-                             "200 rows of the file.")
+                    logger.info("You are guessing dates, this means pandas_processing will be enabled "
+                                 "and the file opened in pandas to allow date formatting into a BigQuery "
+                                 "friendly date format. It will attempt to guess dates based on the top "
+                                 "200 rows of the file.")
 
-        if args.pandas_processing is False:
-            file_upload_name = upload_to_gsc(file, filename, folderpath, args.bucket, gcs_mv_or_cp)
-        else:
-            df = read_csv_to_df(file,args,args.line_skip-1,None, columns_to_guess) 
-            pandas_processed_out = os.path.join(folderpath, "pandas_processed"+filename)
+            if args.pandas_processing is False:
+                file_upload_name = upload_to_gsc(file, filename, folderpath, args.bucket, gcs_mv_or_cp)
+            else:
+                df = read_csv_to_df(file,args,args.line_skip-1,None, columns_to_guess) 
+                pandas_processed_out = os.path.join(folderpath, "pandas_processed"+filename)
 
-            df.to_csv(pandas_processed_out, 
-                      index=False, 
-                      date_format='%Y-%m-%d %H:%M:%S', 
-                      quoting=1, 
-                      encoding='utf-8')
+                df.to_csv(pandas_processed_out, 
+                          index=False, 
+                          date_format='%Y-%m-%d %H:%M:%S', 
+                          quoting=1, 
+                          encoding='utf-8')
 
-            # If we've opened the file into pandas then we've already performed the line
-            # skip and it should be reset to 1.
-            args.line_skip = 1
-            file_upload_name = upload_to_gsc(pandas_processed_out, filename, folderpath, args.bucket, "mv")
+                # If we've opened the file into pandas then we've already performed the line
+                # skip and it should be reset to 1.
+                args.line_skip = 1
+                file_upload_name = upload_to_gsc(pandas_processed_out, filename, folderpath, args.bucket, "mv")
 
-        setup_bq(args)
-        upload_to_bq(file_upload_name,file, args, strict_schema, file_format)
+            last_config = {
+                "file_upload_name": file_upload_name,
+                "file": file,
+                "args": vars(args),
+                "strict_schema": strict_schema,
+                "file_format": file_format
+            }
+
+            last_uploaded_file(last_config)
+    elif args.reload_uploaded_file is True:
+        output_loc = os.path.join(os.path.dirname(abspath(getsourcefile(lambda:0))),
+                                  "last_uploaded_file.txt")
+        with open(output_loc, 'r') as file:
+            saved_args = json.load(file)
+
+        file_upload_name = saved_args['file_upload_name']
+        file = saved_args['file']
+        strict_schema = saved_args['strict_schema']
+        file_format = saved_args['file_format']
+
+        # Overwrite previous settings with new error number
+        args_temp = Struct(**saved_args['args'])
+        args_temp.max_bad_records = args.max_bad_records
+        args = args_temp
+
+        logger.info("Attempting to reload the last loaded file into BigQuery: {}".format(file_upload_name))
+
+    setup_bq(args)
+    upload_to_bq(file_upload_name,file, args, strict_schema, file_format)
 
 
 if __name__ == '__main__':

@@ -1,0 +1,10 @@
+README.rst
+setup.py
+bootstrap/__init__.py
+bootstrap/__main__.py
+bootstrap/bootstrap.py
+bq_upload.egg-info/PKG-INFO
+bq_upload.egg-info/SOURCES.txt
+bq_upload.egg-info/dependency_links.txt
+bq_upload.egg-info/entry_points.txt
+bq_upload.egg-info/top_level.txt

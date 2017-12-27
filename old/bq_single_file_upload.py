@@ -313,7 +313,7 @@ def main():
     global logger
     logger = logging.getLogger(__name__)
 
-    parser = argparse.ArgumentParser(description="This program will load the selected file into "
+    parser = argparse.ArgumentParser(description="This file will load the selected file into "
                                                  "BigQuery.")
     parser.add_argument("path",
                         help="Specify the source CSV file.")    
@@ -370,14 +370,12 @@ def main():
     command2 = 'bq'
 
     if shutil.which(command) is None:
-        logger.info("This script requires gsutil to be installed. The easiest way to get this "
-                    "is to install and setup the Google Cloud SDK. Instructions here: "
-                    "https://cloud.google.com/sdk/docs/quickstarts")
+        logger.info("This script requires gsutil to be installed. For instruction information and "
+                    "an explanation as to why, please see the Github.")
         exit(1)
     if shutil.which(command2) is None:
-        logger.info("This script requires bq to be installed. The easiest way to get this "
-                    "is to install and setup the Google Cloud SDK. Instructions here: "
-                    "https://cloud.google.com/sdk/docs/quickstarts")
+        logger.info("This script requires bq to be installed. For instruction information and an "
+                    "explanation as to why, please see the Github.")
         exit(1)
 
     logger.info("Both gsutil and bq are installed on this machine. Script will continue.")

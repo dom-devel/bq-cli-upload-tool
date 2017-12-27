@@ -1,0 +1,3 @@
+[console_scripts]
+bq-upload = bootstrap.bootstrap:main
+

@@ -1,0 +1,59 @@
+Metadata-Version: 1.0
+Name: bq-upload
+Version: 0.21
+Summary: A python command line package, which makes it easy to upload files to BigQuery.
+Home-page: https://www.domwoodman.com
+Author: Dominic Woodman
+Author-email: domwoodman@gmail.com
+License: UNKNOWN
+Description: # bq-upload - A command line wrapper to help  with uploading and opening files in BigQuery
+        
+        This command line tool is meant to make it easier to upload files into BigQuery
+        
+        ## Summary
+        
+        - Lets you to upload with a single command from desktop to BigQuery.
+        - Lets you to upload an entire folder at once.
+        - Provides the ability to automatically guess date formats and provide the correct output timestamp format for BQ.
+        - Automatically formats JSON into the correct BigQuery friendly format
+        - Debugging help for BigQuery error messages which only give you byte position, not row. The tool will print out the line which has caused the error allowing for easier debugging.
+        
+        ## Why might this be useful for you?
+        
+        I work regularly with a lot of large websites where the data won't comfortably fit into Excel.
+        
+        Sometimes python and Jupyter notebooks are the right choice, other times I want to take access of BigQuery and the large scale data infrastructure that Google has built.
+        
+        Getting data into BigQuery however can be a bit of a pain, certainly compared to just opening a file in Excel. I wrote this wrapper to take care of all that and let me spend more time on analysis and less time on data munging.
+        
+        It's still early days and although I've written this to be cross platform, I'm a windows user and that's all it's received testing on, so please submit bugs (for best re-creation please share the files (and if necessary file structures), you're struggling with so I can try and re-create).
+        
+        ## Options
+        
+        
+        
+        | required arguments | description                              |
+        | ------------------ | ---------------------------------------- |
+        | path               | Specify the source CSV file.             |
+        | bucket             | Enter the bucket to upload to Google Cloud Storage. If the bucket doesnt exist, it will be created in the American region. |
+        | dataset            | Enter the name of the dataset in BigQuery |
+        | table              | Enter the name of the BigQuery table     |
+        
+        
+        
+        | short argument | long argument          | description                              |
+        | -------------- | ---------------------- | ---------------------------------------- |
+        | -p             | --project              | The default gcloud project will be used. Enter the name of the Google Cloud Console project, if you want to change. It should look like magic-hat-100231 |
+        | -ls            | --line_skip            | Enter the number of lines to skip at the top of the file. You need to skip column headers. BigQuery will take the last line skipped as the column headers. |
+        | -pp            | --pandas_processing    | This will open file into a dataframe and perform any custom processing selected before saving to a CSV. Takes a boolean. |
+        | -d             | --delimiter            | Bigquery accepts CSV, JSON or Agro. If you have a non- comma delimiter, specify it here. If youre setting a specific file type you dont need this. |
+        | -e             | --encoding             | Requires file processing option. Specify the encoding of the file to be uploaded, it will be converted to utf-8 as this is the only encoding supported by BigQuery. |
+        | -br            | --max_bad_records      | This will set the maximum number of errors BigQuery will allow per file to be uploaded. Default: 0. |
+        | -ss            | --strict_schema        | This will take the first 2 lines of the file and use it to specify a schema. Useful if BQ is  inferring incorrect schema. Takes a boolean. |
+        | -gd            | --guess_date           | This will take the first 200 lines of the file and use it to specify a schema, it will also  attempt to guess any non number fields as dates. Takes a boolean. |
+        | -tc            | --timestamp_columns    | Must be used in tandem with ts. Select the columns to which the custom timestamp should be applied. |
+        | -ts            | --timestamp_strptime   | Must be used in tandem with tc. Provide a strptime string to process the dates with. Currently this tool doesn't support files with multiple different timestamps. |
+        | -rl            | --reload_uploaded_file | Reload uploaded file. When you have uploaded a very large file and it has failed to open in BigQuery, this option allows you to just retry the load. (Typically used for increasing error threshold). Takes a boolean. |
+        
+        
+Platform: UNKNOWN
