@@ -20,6 +20,22 @@ Getting data into BigQuery however can be a bit of a pain, certainly compared to
 
 It's still early days and although I've written this to be cross platform, I'm a windows user and that's all it's received testing on, so please submit bugs (for best re-creation please share the files (and if necessary file structures), you're struggling with so I can try and re-create).
 
+## How to install and run it
+
+You can install this command line wrapper using pip:
+
+`pip install bq-upload`
+
+This tool is built on top of `gsutil` and `bq`. You'll need to install both of those which can be done by following the instructions [here](https://cloud.google.com/storage/docs/gsutil_install) (while it says gsutil, this will install the GCloud SDK which will install both).
+
+You can then run it using and the arguments below:
+
+`bq-upload`
+
+You can see help using:
+
+`bq-upload --help`
+
 ## Options
 
 
