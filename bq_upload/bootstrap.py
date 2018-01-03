@@ -1,6 +1,6 @@
 """bootstrap.bootstrap: provides entry point main()."""
 
-__version__ = "0.21"
+__version__ = "0.25"
 import pandas as pd
 import argparse
 import tarfile
@@ -33,13 +33,12 @@ def setup_logging(
     """
     path = os.path.join(os.path.dirname(abspath(getsourcefile(lambda:0))),
         default_path)
-    print(path)
+
     if os.path.exists(path):
         with open(path, 'rt') as f:
             config = json.load(f)
         logging.config.dictConfig(config)
     else:
-        print("DOM2")
         logging.basicConfig(level=default_level)
 
 

@@ -5,7 +5,7 @@
 """Convenience wrapper for running bootstrap directly from source tree."""
 
 
-from bootstrap.bootstrap import main
+from bq_upload.bootstrap import main
 
 
 if __name__ == '__main__':
